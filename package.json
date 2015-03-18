@@ -1,0 +1,10 @@
+{
+  "id": "com.ninjablocks.app-uber",
+  "name": "Uber Application",
+  "version": "0.1.0",
+  "description": "Adds an Uber pane to the LED matrix. Allows booking of Uber rides.",
+  "author": "Elliot Shepherd <elliot@ninjablocks.com>",
+  "keywords": ["uber", "pane", "car", "ride", "book"],
+  "license": "MIT",
+  "files": ["images"]
+}
