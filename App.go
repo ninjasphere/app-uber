@@ -51,6 +51,8 @@ func init() {
 	if sandbox {
 		uber.UberAPIHost = "https://sandbox-api.uber.com/" + uber.Version
 	}
+
+	client.SetAuth(uberConfig.ClientID, uberConfig.Secret, "http://localhost:7635")
 }
 
 type RuntimeConfig struct {
@@ -67,7 +69,7 @@ func (a *App) Start(cfg *RuntimeConfig) error {
 
 	if err != nil {
 		log.Infof("No user token. Creating a new one.")
-		err = client.AutOAuth(uberConfig.ClientID, uberConfig.Secret, "http://localhost:7635", "profile")
+		err = client.AutOAuth("profile")
 
 		if err != nil {
 			log.Fatalf("Could not create user token: %s", err)
@@ -81,21 +83,29 @@ func (a *App) Start(cfg *RuntimeConfig) error {
 		client.Access = access
 	}
 
-	spew.Dump("Got access token", client.Access)
-
 	user, err = client.GetUserProfile()
 
 	if err != nil {
-		if strings.Contains(err.Error(), "unauthorized") {
-			err = deleteUserToken()
-			if err == nil {
-				log.Fatalf("Token invalid. Deleted")
-			} else {
-				log.Fatalf("Token invalid. Couldn't delete token.json: %s", err)
-			}
-		}
 
-		log.Fatalf("Failed to get user profile: %s", err)
+		if strings.Contains(err.Error(), "unauthorized") {
+
+			err = client.RefreshAccessToken()
+
+			if err == nil {
+
+				user, err = client.GetUserProfile()
+
+				if err != nil {
+					log.Fatalf("Unauthorised. Refreshed but still couldn't get profile. %s", err)
+				}
+
+			} else {
+				deleteUserToken()
+				log.Fatalf("Unauthorised. Couldn't refresh access token. Deleted token. %s", err)
+			}
+		} else {
+			log.Fatalf("Failed to get user profile: %s", err)
+		}
 	}
 
 	spew.Dump("Got user profile", user)
