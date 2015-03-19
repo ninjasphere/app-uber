@@ -361,6 +361,11 @@ func (p *RequestPane) Gesture(gesture *gestic.GestureMessage) {
 		p.parent.lastDoubleTap = time.Now()
 
 		log.Infof("Request Double Tap!")
+
+		if p.state == "accepted" || p.state == "processing" {
+			log.Infof("Cancelling!")
+			p.Cancel()
+		}
 	}
 
 }
@@ -380,6 +385,10 @@ func (p *RequestPane) Book() {
 		time.Sleep(time.Second * 5)
 		p.updateState("trip_complete")
 	}()
+}
+
+func (p *RequestPane) Cancel() {
+	p.updateState("rider_cancelled")
 }
 
 func (p *RequestPane) updateState(state string) {
