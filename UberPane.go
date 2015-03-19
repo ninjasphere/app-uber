@@ -38,7 +38,9 @@ var imageSurge = util.LoadImage(util.ResolveImagePath("surge.gif"))
 var imageNoSurge = util.LoadImage(util.ResolveImagePath("no_surge.gif"))
 var imageLogo = util.LoadImage(util.ResolveImagePath("logo.png"))
 
+var confirmDeadTime = config.MustDuration("uber.request.deadTime")
 var confirmTimeout = config.MustDuration("uber.request.confirmTimeout")
+var closeOnDeadTap = config.MustBool("uber.request.closeOnDeadTap")
 
 var requestImages map[string]util.Image
 
@@ -309,6 +311,7 @@ func (p *UberPane) IsDirty() bool {
 type RequestPane struct {
 	sync.Mutex
 	parent          *UberPane
+	activeSince     time.Time
 	active          bool
 	state           string
 	product         string
@@ -321,16 +324,18 @@ func (p *RequestPane) StartRequest(product string, surgeMultiplier float64) {
 		panic("Asked to start new request... was already active.")
 	}
 
+	p.activeSince = time.Now()
 	p.finished = false
 	p.surgeMultiplier = surgeMultiplier
 	p.product = product
 	p.active = true
 	p.state = "confirm_booking"
 	go func() {
+		started := p.activeSince
 		time.Sleep(confirmTimeout)
 		p.Lock()
 		defer p.Unlock()
-		if p.state == "confirm_booking" {
+		if started == p.activeSince && p.state == "confirm_booking" {
 			p.active = false
 		}
 	}()
@@ -340,9 +345,21 @@ func (p *RequestPane) Gesture(gesture *gestic.GestureMessage) {
 
 	if gesture.Tap.Active() && time.Since(p.parent.lastTap) > tapInterval {
 
-		log.Infof("Request Tap!")
-
 		p.parent.lastTap = time.Now()
+
+		if time.Since(p.activeSince) < confirmDeadTime {
+
+			log.Infof("Dead tap")
+
+			if closeOnDeadTap {
+				log.Infof("Closing on dead tap")
+				p.active = false
+			}
+
+			return
+		}
+
+		log.Infof("Request Tap!")
 
 		if p.finished { // Tap to close after a failed booking
 			log.Infof("Closing failed request")
@@ -377,12 +394,24 @@ func (p *RequestPane) Book() {
 		// TODO: Actually create the request!
 
 		time.Sleep(time.Second * 5)
+		if !p.active || p.finished {
+			return
+		}
 		p.updateState("accepted")
 		time.Sleep(time.Second * 5)
+		if !p.active || p.finished {
+			return
+		}
 		p.updateState("arriving")
 		time.Sleep(time.Second * 5)
+		if !p.active || p.finished {
+			return
+		}
 		p.updateState("in_progress")
 		time.Sleep(time.Second * 5)
+		if !p.active || p.finished {
+			return
+		}
 		p.updateState("trip_complete")
 	}()
 }

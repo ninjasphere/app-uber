@@ -26,7 +26,14 @@
     "visibilityTimeout": "2s",
 
     "request": {
-      "confirmTimeout": "5s"
+      "confirmTimeout": "How long to show the confirmation screen before returning",
+      "confirmTimeout": "5s",
+
+      "deadTime": "How long into the confirmation screen to ignore an accept",
+      "deadTime": "750ms",
+
+      "closeOnDeadTap": "If there is a tap in the dead time, return to the main screen",
+      "closeOnDeadTap": true
     }
 
   }
