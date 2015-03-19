@@ -10,12 +10,15 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/ninjasphere/go-ninja/api"
+	"github.com/ninjasphere/go-ninja/config"
 	"github.com/ninjasphere/go-ninja/support"
 	"github.com/ninjasphere/go-uber"
 	"github.com/ninjasphere/sphere-go-led-controller/remote"
 )
 
 var info = ninja.LoadModuleInfo("./package.json")
+
+var sandbox = config.MustBool("uber.sandbox")
 
 var uberConfig UberConfig
 
@@ -44,6 +47,10 @@ func init() {
 	}
 
 	client = uber.NewClient(uberConfig.ServerToken)
+
+	if sandbox {
+		uber.UberAPIHost = "https://sandbox-api.uber.com/" + uber.Version
+	}
 }
 
 type RuntimeConfig struct {

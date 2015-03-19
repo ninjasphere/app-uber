@@ -1,6 +1,9 @@
 {
   "uber": {
 
+    "sandbox": "Use the Uber sandbox server",
+    "sandbox": true,
+
     "introDuration": "Time to show the uber logo. Won't display until data is available.",
     "introDuration": "2s",
 
