@@ -6,6 +6,7 @@ import (
 	"image/color"
 	"image/draw"
 	"io/ioutil"
+	"math"
 	"strings"
 	"sync"
 	"time"
@@ -283,7 +284,7 @@ func (p *UberPane) Render() (*image.RGBA, error) {
 		A: 255,
 	}}, image.ZP, draw.Src)*/
 
-	waitInMinutes := int(time.Estimate / 60)
+	waitInMinutes := int(math.Ceil(float64(time.Estimate) / 60.0))
 
 	drawText := func(text string, col color.RGBA, top int) {
 		width := O4b03b.Font.DrawString(img, 0, 8, text, color.Black)
