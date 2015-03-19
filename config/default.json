@@ -1,0 +1,23 @@
+{
+  "uber": {
+
+    "introDuration": "Time to show the uber logo. Won't display until data is available.",
+    "introDuration": "2s",
+
+    "tapInterval": "The minimum amount of time between registered taps",
+    "tapInterval": "5s",
+
+    "updateOnTap": "Update wait time and surge pricing on tap",
+    "updateOnTap": true,
+
+    "updateInterval": "Time between updating the time and surge pricing",
+    "updateInterval": "30s",
+
+    "staleDataTimeout": "The maximum age of the time and surge pricing data before we stop showing it",
+    "staleDataTimeout": "90s",
+
+    "visibilityTimeout": "How long without rendering before the intro is re-enabled",
+    "visibilityTimeout": "2s"
+
+  }
+}

@@ -20,11 +20,12 @@ import (
 var latitude = config.Float(0.0, "latitude")
 var longitude = config.Float(0.0, "longitude")
 
-var tapInterval = time.Duration(time.Second / 2)
-var introDuration = time.Duration(time.Second * 2)
-
-var visibleTimeout = time.Duration(time.Second * 2) // Time between frames rendered before we reset the ui.
-var staleDataTimeout = time.Duration(time.Second * 90)
+var tapInterval = config.MustDuration("uber.tapInterval")
+var updateOnTap = config.MustBool("uber.updateOnTap")
+var introDuration = config.MustDuration("uber.introDuration")
+var visibleTimeout = config.MustDuration("uber.visibilityTimeout") // Time between frames rendered before we reset the ui.
+var updateInterval = config.MustDuration("uber.updateInterval")
+var staleDataTimeout = config.MustDuration("uber.staleDataTimeout")
 
 var timezone *time.Location
 
