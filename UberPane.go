@@ -224,7 +224,7 @@ func (p *UberPane) Render() (*image.RGBA, error) {
 
 	drawText := func(text string, col color.RGBA, top int) {
 		width := O4b03b.Font.DrawString(img, 0, 8, text, color.Black)
-		start := int(16 - width - 2)
+		start := int(16 - width - 1)
 
 		O4b03b.Font.DrawString(img, start, top, text, col)
 	}
