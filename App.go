@@ -53,6 +53,8 @@ func init() {
 	}
 
 	client.SetAuth(uberConfig.ClientID, uberConfig.Secret, "http://localhost:7635")
+
+	loadRequestImages()
 }
 
 type RuntimeConfig struct {

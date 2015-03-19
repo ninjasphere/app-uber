@@ -1,6 +1,9 @@
 {
   "uber": {
 
+    "product": "The uber product used for times, prices and bookings. I've seen uberX, UberBLACK, UberLUX, UberSUV, uberTAXI in Sydney.",
+    "product": "uberX",
+
     "sandbox": "Use the Uber sandbox server",
     "sandbox": true,
 
@@ -8,7 +11,7 @@
     "introDuration": "2s",
 
     "tapInterval": "The minimum amount of time between registered taps",
-    "tapInterval": "5s",
+    "tapInterval": "500ms",
 
     "updateOnTap": "Update wait time and surge pricing on tap",
     "updateOnTap": true,
@@ -20,7 +23,11 @@
     "staleDataTimeout": "90s",
 
     "visibilityTimeout": "How long without rendering before the intro is re-enabled",
-    "visibilityTimeout": "2s"
+    "visibilityTimeout": "2s",
+
+    "request": {
+      "confirmTimeout": "5s"
+    }
 
   }
 }

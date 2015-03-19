@@ -5,6 +5,9 @@ import (
 	"image"
 	"image/color"
 	"image/draw"
+	"io/ioutil"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
@@ -16,6 +19,8 @@ import (
 	"github.com/ninjasphere/sphere-go-led-controller/fonts/O4b03b"
 	"github.com/ninjasphere/sphere-go-led-controller/util"
 )
+
+var uberProduct = config.MustString("uber.product")
 
 var latitude = config.Float(0.0, "latitude")
 var longitude = config.Float(0.0, "longitude")
@@ -32,6 +37,31 @@ var timezone *time.Location
 var imageSurge = util.LoadImage(util.ResolveImagePath("surge.gif"))
 var imageNoSurge = util.LoadImage(util.ResolveImagePath("no_surge.gif"))
 var imageLogo = util.LoadImage(util.ResolveImagePath("logo.png"))
+
+var confirmTimeout = config.MustDuration("uber.request.confirmTimeout")
+
+var requestImages map[string]util.Image
+
+func loadRequestImages() {
+	files, err := ioutil.ReadDir("./images/request_states")
+
+	if err != nil {
+		panic("Couldn't load request state images: " + err.Error())
+	}
+
+	requestImages = make(map[string]util.Image)
+
+	for _, f := range files {
+
+		if strings.HasSuffix(f.Name(), ".gif") || strings.HasSuffix(f.Name(), ".png") {
+			name := strings.TrimSuffix(strings.TrimSuffix(f.Name(), ".png"), ".gif")
+
+			log.Infof("Found state image: " + name)
+			requestImages[name] = util.LoadImage(util.ResolveImagePath("request_states/" + f.Name()))
+		}
+
+	}
+}
 
 type UberPane struct {
 	siteModel *ninja.ServiceClient
@@ -52,18 +82,21 @@ type UberPane struct {
 	staleDataTimeout *time.Timer
 	updateTimer      *time.Timer
 
-	uberProduct string
-
 	keepAwake        bool
 	keepAwakeTimeout *time.Timer
+
+	requestPane *RequestPane
 }
 
 func NewUberPane(conn *ninja.Connection) *UberPane {
 
 	pane := &UberPane{
-		siteModel:   conn.GetServiceClient("$home/services/SiteModel"),
-		lastTap:     time.Now(),
-		uberProduct: config.String("uberX", "uber.product"),
+		siteModel: conn.GetServiceClient("$home/services/SiteModel"),
+		lastTap:   time.Now(),
+	}
+
+	pane.requestPane = &RequestPane{
+		parent: pane,
 	}
 
 	pane.visibleTimeout = time.AfterFunc(0, func() {
@@ -138,7 +171,7 @@ func (p *UberPane) UpdateData(once bool) error {
 	p.times = times
 	p.prices = prices
 
-	spew.Dump("Updated data", times, prices)
+	//spew.Dump("Updated data", times, prices)
 
 	p.staleDataTimeout.Reset(staleDataTimeout)
 
@@ -150,6 +183,11 @@ func (p *UberPane) UpdateData(once bool) error {
 }
 
 func (p *UberPane) Gesture(gesture *gestic.GestureMessage) {
+
+	if p.requestPane.IsEnabled() {
+		p.requestPane.Gesture(gesture)
+		return
+	}
 
 	if gesture.Tap.Active() && time.Since(p.lastTap) > tapInterval {
 		p.lastTap = time.Now()
@@ -164,15 +202,49 @@ func (p *UberPane) Gesture(gesture *gestic.GestureMessage) {
 		p.lastDoubleTap = time.Now()
 
 		log.Infof("Double Tap!")
+
+		_, price := p.GetProduct(uberProduct)
+
+		p.requestPane.StartRequest(uberProduct, price.SurgeMultiplier)
 	}
 
 }
 
 func (p *UberPane) KeepAwake() bool {
+	if p.requestPane.IsEnabled() {
+		return true
+	}
+
+	// TODO: Screen timeouts... 10min on press etc...
 	return true
 }
 
+func (p *UberPane) GetProduct(name string) (*uber.Time, *uber.Price) {
+	var time *uber.Time
+	var price *uber.Price
+
+	for _, t := range p.times {
+		if t.DisplayName == uberProduct {
+			time = t
+		}
+	}
+
+	for _, t := range p.prices {
+		if t.DisplayName == uberProduct {
+			price = t
+		}
+	}
+
+	return time, price
+}
+
 func (p *UberPane) Render() (*image.RGBA, error) {
+
+	p.visibleTimeout.Reset(visibleTimeout)
+
+	if p.requestPane.IsEnabled() {
+		return p.requestPane.Render()
+	}
 
 	if !p.visible {
 		p.visible = true
@@ -183,31 +255,16 @@ func (p *UberPane) Render() (*image.RGBA, error) {
 		go p.UpdateData(false)
 	}
 
-	p.visibleTimeout.Reset(visibleTimeout)
-
 	if p.intro || p.times == nil {
 		return imageLogo.GetNextFrame(), nil
 	}
 
-	var time *uber.Time
-	var price *uber.Price
+	time, price := p.GetProduct(uberProduct)
 	var border util.Image
-
-	for _, t := range p.times {
-		if t.DisplayName == p.uberProduct {
-			time = t
-		}
-	}
-
-	for _, t := range p.prices {
-		if t.DisplayName == p.uberProduct {
-			price = t
-		}
-	}
 
 	if price == nil || time == nil {
 		spew.Dump(p.prices, p.times)
-		log.Fatalf("Could not find price/time for product %s", p.uberProduct)
+		log.Fatalf("Could not find price/time for product %s", uberProduct)
 	}
 
 	if price.SurgeMultiplier > 1 {
@@ -247,4 +304,150 @@ func (p *UberPane) IsEnabled() bool {
 
 func (p *UberPane) IsDirty() bool {
 	return true
+}
+
+type RequestPane struct {
+	sync.Mutex
+	parent          *UberPane
+	active          bool
+	state           string
+	product         string
+	surgeMultiplier float64
+	finished        bool
+}
+
+func (p *RequestPane) StartRequest(product string, surgeMultiplier float64) {
+	if p.active {
+		panic("Asked to start new request... was already active.")
+	}
+
+	p.finished = false
+	p.surgeMultiplier = surgeMultiplier
+	p.product = product
+	p.active = true
+	p.state = "confirm_booking"
+	go func() {
+		time.Sleep(confirmTimeout)
+		p.Lock()
+		defer p.Unlock()
+		if p.state == "confirm_booking" {
+			p.active = false
+		}
+	}()
+}
+
+func (p *RequestPane) Gesture(gesture *gestic.GestureMessage) {
+
+	if gesture.Tap.Active() && time.Since(p.parent.lastTap) > tapInterval {
+
+		log.Infof("Request Tap!")
+
+		p.parent.lastTap = time.Now()
+
+		if p.finished { // Tap to close after a failed booking
+			log.Infof("Closing failed request")
+			p.active = false
+			return
+		}
+
+		if p.state == "confirm_booking" {
+			log.Infof("Booking!")
+			p.Book()
+		}
+
+	}
+
+	if gesture.DoubleTap.Active() && time.Since(p.parent.lastDoubleTap) > tapInterval {
+		p.parent.lastDoubleTap = time.Now()
+
+		log.Infof("Request Double Tap!")
+	}
+
+}
+
+func (p *RequestPane) Book() {
+	p.state = "processing"
+
+	go func() {
+		// TODO: Actually create the request!
+
+		time.Sleep(time.Second * 5)
+		p.updateState("accepted")
+		time.Sleep(time.Second * 5)
+		p.updateState("arriving")
+		time.Sleep(time.Second * 5)
+		p.updateState("in_progress")
+		time.Sleep(time.Second * 5)
+		p.updateState("trip_complete")
+	}()
+}
+
+func (p *RequestPane) updateState(state string) {
+	p.Lock()
+	defer p.Unlock()
+	p.state = state
+
+	switch state {
+	case "no_drivers_available":
+		fallthrough
+	case "driver_cancelled":
+		fallthrough
+	case "rider_cancelled":
+		p.finished = true
+	case "trip_complete":
+		go func() {
+			time.Sleep(time.Second * 5)
+			p.active = false
+		}()
+	}
+}
+
+func (p *RequestPane) Render() (*image.RGBA, error) {
+
+	img := image.NewRGBA(image.Rect(0, 0, 16, 16))
+
+	stateImg, ok := requestImages[p.state]
+
+	if !ok {
+		panic("Unknown uber request state: " + p.state)
+	}
+
+	drawText := func(text string, col color.RGBA, top int) {
+		width := O4b03b.Font.DrawString(img, 0, 8, text, color.Black)
+		start := int(16 - width - 1)
+
+		O4b03b.Font.DrawString(img, start, top, text, col)
+	}
+
+	draw.Draw(img, img.Bounds(), stateImg.GetNextFrame(), image.Point{0, 0}, draw.Over)
+
+	switch p.state {
+	case "confirm_booking":
+		var border util.Image
+
+		if p.surgeMultiplier > 1 {
+			drawText(fmt.Sprintf("%.1fx", p.surgeMultiplier), color.RGBA{69, 175, 249, 255}, 9)
+
+			border = imageSurge
+		} else {
+			border = imageNoSurge
+		}
+
+		draw.Draw(img, img.Bounds(), border.GetNextFrame(), image.Point{0, 0}, draw.Over)
+	}
+
+	/*drawText := func(text string, col color.RGBA, top int) {
+		width := O4b03b.Font.DrawString(img, 0, 8, text, color.Black)
+		start := int(16 - width - 1)
+
+		O4b03b.Font.DrawString(img, start, top, text, col)
+	}
+
+	drawText("woot", color.RGBA{69, 175, 249, 255}, 9)*/
+
+	return img, nil
+}
+
+func (p *RequestPane) IsEnabled() bool {
+	return p.active
 }
