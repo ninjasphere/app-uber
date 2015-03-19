@@ -426,6 +426,9 @@ func (p *RequestPane) Render() (*image.RGBA, error) {
 		var border util.Image
 
 		if p.surgeMultiplier > 1 {
+
+			stateImg, _ = requestImages["confirm_booking_surge"]
+
 			drawText(fmt.Sprintf("%.1fx", p.surgeMultiplier), color.RGBA{69, 175, 249, 255}, 9)
 
 			border = imageSurge
