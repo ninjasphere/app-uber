@@ -84,7 +84,7 @@ func NewUberPane(conn *ninja.Connection) *UberPane {
 			return
 		}
 
-		err := pane.UpdateData()
+		err := pane.UpdateData(false)
 		if err != nil {
 			log.Errorf("Failed to get uber data: %s", err)
 			pane.updateTimer.Reset(time.Second * 5)
@@ -124,7 +124,7 @@ func (p *UberPane) Start() {
 
 }
 
-func (p *UberPane) UpdateData() error {
+func (p *UberPane) UpdateData(once bool) error {
 	times, err := client.GetTimes(latitude, longitude, user.UUID, "")
 	if err != nil {
 		return err
@@ -142,8 +142,8 @@ func (p *UberPane) UpdateData() error {
 
 	p.staleDataTimeout.Reset(staleDataTimeout)
 
-	if p.visible {
-		p.updateTimer.Reset(time.Second * 30)
+	if !once && p.visible {
+		p.updateTimer.Reset(updateInterval)
 	}
 
 	return nil
@@ -155,6 +155,9 @@ func (p *UberPane) Gesture(gesture *gestic.GestureMessage) {
 		p.lastTap = time.Now()
 
 		log.Infof("Tap!")
+		if updateOnTap {
+			go p.UpdateData(true)
+		}
 	}
 
 	if gesture.DoubleTap.Active() && time.Since(p.lastDoubleTap) > tapInterval {
@@ -177,7 +180,7 @@ func (p *UberPane) Render() (*image.RGBA, error) {
 
 		p.introTimeout.Reset(introDuration)
 
-		go p.UpdateData()
+		go p.UpdateData(false)
 	}
 
 	p.visibleTimeout.Reset(visibleTimeout)
