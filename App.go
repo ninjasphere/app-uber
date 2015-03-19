@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"net"
 	"os"
+	"strings"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/ninjasphere/go-ninja/api"
@@ -77,6 +78,19 @@ func (a *App) Start(cfg *RuntimeConfig) error {
 
 	user, err = client.GetUserProfile()
 
+	if err != nil {
+		if strings.Contains(err.Error(), "unauthorized") {
+			err = deleteUserToken()
+			if err == nil {
+				log.Fatalf("Token invalid. Deleted")
+			} else {
+				log.Fatalf("Token invalid. Couldn't delete token.json: %s", err)
+			}
+		}
+
+		log.Fatalf("Failed to get user profile: %s", err)
+	}
+
 	spew.Dump("Got user profile", user)
 
 	pane := NewUberPane(a.Conn)
@@ -116,12 +130,15 @@ func loadUserToken() (*uber.Access, error) {
 }
 
 func saveUserToken() error {
-	spew.Dump(client)
 	b, err := json.Marshal(client.Access)
 	if err != nil {
 		return err
 	}
 	return ioutil.WriteFile("token.json", b, 0644)
+}
+
+func deleteUserToken() error {
+	return os.Remove("token.json")
 }
 
 // Stop the security light app.
