@@ -50,6 +50,8 @@ func init() {
 
 	if sandbox {
 		uber.UberAPIHost = "https://sandbox-api.uber.com/" + uber.Version
+	} else {
+		log.Infof("\n\n ********* PRODUCTION MODE (aka not sandbox!) **********\n\n")
 	}
 
 	client.SetAuth(uberConfig.ClientID, uberConfig.Secret, "http://localhost:7635")
@@ -71,7 +73,7 @@ func (a *App) Start(cfg *RuntimeConfig) error {
 
 	if err != nil {
 		log.Infof("No user token. Creating a new one.")
-		err = client.AutOAuth("profile")
+		err = client.AutOAuth("profile", "request", "history")
 
 		if err != nil {
 			log.Fatalf("Could not create user token: %s", err)

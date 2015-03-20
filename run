@@ -1,0 +1,2 @@
+#!/bin/bash
+go build && DEBUG=* host=elliotsphere2.local ./app-uber --led.host elliotsphere2.local --mqtt.host elliotsphere2.local --endLatitude=-33.885898 --endLongitude=151.1809096

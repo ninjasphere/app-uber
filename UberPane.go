@@ -26,6 +26,8 @@ var uberProduct = config.MustString("uber.product")
 var latitude = config.Float(0.0, "latitude")
 var longitude = config.Float(0.0, "longitude")
 
+var endLocation = loc(config.Float(0.0, "endLatitude"), config.Float(0.0, "endLongitude"))
+
 var tapInterval = config.MustDuration("uber.tapInterval")
 var updateOnTap = config.MustBool("uber.updateOnTap")
 var introDuration = config.MustDuration("uber.introDuration")
@@ -208,7 +210,18 @@ func (p *UberPane) Gesture(gesture *gestic.GestureMessage) {
 
 		_, price := p.GetProduct(uberProduct)
 
-		p.requestPane.StartRequest(uberProduct, price.SurgeMultiplier)
+		productID, err := p.GetProductID(uberProduct)
+
+		if price == nil || err != nil {
+			log.Fatalf("Failed to find product: %s", uberProduct)
+		}
+
+		var e *uber.Location
+		if endLocation.Longitude != 0 {
+			e = endLocation
+		}
+
+		p.requestPane.StartRequest(productID, loc(latitude, longitude), e, price.SurgeMultiplier)
 	}
 
 }
@@ -239,6 +252,15 @@ func (p *UberPane) GetProduct(name string) (*uber.Time, *uber.Price) {
 	}
 
 	return time, price
+}
+
+func (p *UberPane) GetProductID(name string) (string, error) {
+	for _, t := range p.prices {
+		if t.DisplayName == uberProduct {
+			return t.ProductID, nil
+		}
+	}
+	return "", fmt.Errorf("Missing product ID: %s", name)
 }
 
 func (p *UberPane) Render() (*image.RGBA, error) {
@@ -315,22 +337,33 @@ type RequestPane struct {
 	activeSince     time.Time
 	active          bool
 	state           string
-	product         string
 	surgeMultiplier float64
 	finished        bool
+	request         uberRequest
+
+	product string
+	start   *uber.Location
+	end     *uber.Location
 }
 
-func (p *RequestPane) StartRequest(product string, surgeMultiplier float64) {
+func (p *RequestPane) StartRequest(product string, start *uber.Location, end *uber.Location, surgeMultiplier float64) {
 	if p.active {
 		panic("Asked to start new request... was already active.")
 	}
 
+	p.active = true
+
+	p.request = nil
+	p.product = product
+	p.start = start
+	p.end = end
+
 	p.activeSince = time.Now()
 	p.finished = false
 	p.surgeMultiplier = surgeMultiplier
-	p.product = product
-	p.active = true
+
 	p.state = "confirm_booking"
+
 	go func() {
 		started := p.activeSince
 		time.Sleep(confirmTimeout)
@@ -382,58 +415,57 @@ func (p *RequestPane) Gesture(gesture *gestic.GestureMessage) {
 
 		if p.state == "accepted" || p.state == "processing" {
 			log.Infof("Cancelling!")
-			p.Cancel()
+			go p.Cancel()
 		}
 	}
 
 }
 
 func (p *RequestPane) Book() {
-	p.state = "processing"
 
 	go func() {
-		// TODO: Actually create the request!
 
-		time.Sleep(time.Second * 5)
-		if !p.active || p.finished {
-			return
+		request := createRequest(p.product, p.start, p.end)
+
+		p.request = request
+
+		for status := range request.getStatus() {
+			p.updateState(status)
+
+			if request.isFinished() {
+				break
+			}
 		}
-		p.updateState("accepted")
-		time.Sleep(time.Second * 5)
-		if !p.active || p.finished {
-			return
-		}
-		p.updateState("arriving")
-		time.Sleep(time.Second * 5)
-		if !p.active || p.finished {
-			return
-		}
-		p.updateState("in_progress")
-		time.Sleep(time.Second * 5)
-		if !p.active || p.finished {
-			return
-		}
-		p.updateState("trip_complete")
+
 	}()
 }
 
 func (p *RequestPane) Cancel() {
-	p.updateState("rider_cancelled")
+	err := p.request.cancel()
+
+	if err != nil {
+		p.updateState("error")
+	}
 }
 
 func (p *RequestPane) updateState(state string) {
 	p.Lock()
 	defer p.Unlock()
+
+	log.Infof("Request state: %s", state)
+
 	p.state = state
 
 	switch state {
 	case "no_drivers_available":
 		fallthrough
-	case "driver_cancelled":
+	case "driver_canceled":
 		fallthrough
-	case "rider_cancelled":
+	case "rider_canceled":
+		fallthrough
+	case "error":
 		p.finished = true
-	case "trip_complete":
+	case "completed":
 		go func() {
 			time.Sleep(time.Second * 5)
 			p.active = false
@@ -492,4 +524,125 @@ func (p *RequestPane) Render() (*image.RGBA, error) {
 
 func (p *RequestPane) IsEnabled() bool {
 	return p.active
+}
+
+func loc(lat, long float64) *uber.Location {
+	return &uber.Location{
+		Latitude:  lat,
+		Longitude: long,
+	}
+}
+
+type uberRequest interface {
+	getStatus() chan string
+	getRequest() *uber.Request
+	cancel() error
+	isFinished() bool
+}
+
+type realRequest struct {
+	request   *uber.Request
+	status    chan string
+	canceling bool
+	finished  bool
+}
+
+func createRequest(productID string, start *uber.Location, end *uber.Location) uberRequest {
+
+	request := &realRequest{
+		status: make(chan string, 1),
+	}
+
+	go request.start(productID, start, end)
+
+	return request
+}
+
+func (r *realRequest) getRequest() *uber.Request {
+	return r.request
+}
+
+func (r *realRequest) getStatus() chan string {
+	return r.status
+}
+
+func (r *realRequest) isFinished() bool {
+	return r.finished
+}
+
+func (r *realRequest) cancel() error {
+	r.canceling = true
+	r.status <- "canceling"
+
+	var err error
+
+	for i := 0; i < 24; i++ { // try to cancel for two minutes
+
+		err = client.CancelRequest(r.request.RequestID)
+		if err == nil {
+			break
+		}
+
+		log.Warningf("Failed to cancel request: %s", err)
+
+		time.Sleep(time.Second * 5)
+	}
+
+	log.Infof("Cancelled request %s", r.request.RequestID)
+
+	return err
+}
+
+func (r *realRequest) start(productID string, start *uber.Location, end *uber.Location) {
+
+	r.status <- "starting"
+
+	request, err := client.CreateRequest(productID, start, end, "")
+	spew.Dump("created request", request, err)
+
+	if err != nil {
+		r.finished = true
+		r.status <- "error"
+		return
+	}
+
+	r.request = request
+	r.status <- request.Status
+
+	go func() {
+
+		for {
+			request, err := client.GetRequest(request.RequestID)
+
+			if err != nil {
+				log.Infof("Error getting request: %s", err)
+				// TODO: THIS COULD LOOP FOREVER! Time out if we get no new state for 10min?
+				r.status <- "unknown"
+				time.Sleep(time.Second * 2)
+			} else {
+
+				log.Infof("Request %s status: %s", request.RequestID, request.Status)
+
+				lastStatus := r.request.Status
+
+				r.request = request
+
+				if request.Status == "driver_canceled" || request.Status == "rider_canceled" || request.Status == "completed" {
+					log.Infof("Request %s: complete.", request.RequestID)
+
+					// We're done.
+					r.finished = true
+					r.status <- request.Status // Provide the last status
+
+					return
+				} else if !r.canceling && lastStatus != request.Status {
+					r.status <- request.Status // Only send status if it has changed, and we aren't canceling
+				}
+
+				time.Sleep(time.Second * 10)
+			}
+
+		}
+
+	}()
 }
