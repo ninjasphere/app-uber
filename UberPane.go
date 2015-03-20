@@ -483,9 +483,9 @@ func (p *RequestPane) Render() (*image.RGBA, error) {
 		panic("Unknown uber request state: " + p.state)
 	}
 
-	drawText := func(text string, col color.RGBA, top int) {
+	drawText := func(text string, col color.RGBA, top int, offsetY int) {
 		width := O4b03b.Font.DrawString(img, 0, 8, text, color.Black)
-		start := int(16 - width - 1)
+		start := int(16 - width + offsetY)
 
 		O4b03b.Font.DrawString(img, start, top, text, col)
 	}
@@ -500,7 +500,7 @@ func (p *RequestPane) Render() (*image.RGBA, error) {
 
 			stateImg, _ = requestImages["confirm_booking_surge"]
 
-			drawText(fmt.Sprintf("%.1fx", p.surgeMultiplier), color.RGBA{69, 175, 249, 255}, 9)
+			drawText(fmt.Sprintf("%.1fx", p.surgeMultiplier), color.RGBA{69, 175, 249, 255}, 9, -1)
 
 			border = imageSurge
 		} else {
@@ -508,6 +508,11 @@ func (p *RequestPane) Render() (*image.RGBA, error) {
 		}
 
 		draw.Draw(img, img.Bounds(), border.GetNextFrame(), image.Point{0, 0}, draw.Over)
+	case "accepted":
+		if p.request.getRequest().ETA > 0 {
+			drawText(fmt.Sprintf("%dm", p.request.getRequest().ETA), color.RGBA{253, 151, 32, 255}, 9, 0)
+		}
+		//drawText(fmt.Sprintf("%dm", p.request.getRequest()), color.RGBA{69, 175, 249, 255}, 9)
 	}
 
 	/*drawText := func(text string, col color.RGBA, top int) {
