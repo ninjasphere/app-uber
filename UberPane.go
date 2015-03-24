@@ -208,7 +208,11 @@ func (p *UberPane) Gesture(gesture *gestic.GestureMessage) {
 
 		log.Infof("Double Tap!")
 
-		_, price := p.GetProduct(uberProduct)
+		time, price := p.GetProduct(uberProduct)
+
+		if time == nil {
+			return
+		}
 
 		productID, err := p.GetProductID(uberProduct)
 
@@ -233,6 +237,14 @@ func (p *UberPane) KeepAwake() bool {
 
 	// TODO: Screen timeouts... 10min on press etc...
 	return true
+}
+
+func (p *UberPane) Locked() bool {
+	if p.requestPane.IsEnabled() {
+		return p.requestPane.Locked()
+	}
+
+	return false
 }
 
 func (p *UberPane) GetProduct(name string) (*uber.Time, *uber.Price) {
@@ -287,9 +299,9 @@ func (p *UberPane) Render() (*image.RGBA, error) {
 	time, price := p.GetProduct(uberProduct)
 	var border util.Image
 
-	if price == nil || time == nil {
-		spew.Dump(p.prices, p.times)
-		log.Fatalf("Could not find price/time for product %s", uberProduct)
+	if price == nil {
+		spew.Dump(p.prices)
+		log.Fatalf("Could not find price for product %s", uberProduct)
 	}
 
 	if price.SurgeMultiplier > 1 {
@@ -306,8 +318,6 @@ func (p *UberPane) Render() (*image.RGBA, error) {
 		A: 255,
 	}}, image.ZP, draw.Src)*/
 
-	waitInMinutes := int(math.Ceil(float64(time.Estimate) / 60.0))
-
 	drawText := func(text string, col color.RGBA, top int) {
 		width := O4b03b.Font.DrawString(img, 0, 8, text, color.Black)
 		start := int(16 - width - 1)
@@ -315,7 +325,13 @@ func (p *UberPane) Render() (*image.RGBA, error) {
 		O4b03b.Font.DrawString(img, start, top, text, col)
 	}
 
-	drawText(fmt.Sprintf("%dm", waitInMinutes), color.RGBA{253, 151, 32, 255}, 2)
+	if time == nil {
+		drawText("N/A", color.RGBA{253, 151, 32, 255}, 2)
+	} else {
+		waitInMinutes := int(math.Ceil(float64(time.Estimate) / 60.0))
+		drawText(fmt.Sprintf("%dm", waitInMinutes), color.RGBA{253, 151, 32, 255}, 2)
+	}
+
 	drawText(fmt.Sprintf("%.1fx", price.SurgeMultiplier), color.RGBA{69, 175, 249, 255}, 9)
 
 	draw.Draw(img, img.Bounds(), border.GetNextFrame(), image.Point{0, 0}, draw.Over)
@@ -471,6 +487,10 @@ func (p *RequestPane) updateState(state string) {
 			p.active = false
 		}()
 	}
+}
+
+func (p *RequestPane) Locked() bool {
+	return p.state == "confirm_booking"
 }
 
 func (p *RequestPane) Render() (*image.RGBA, error) {
