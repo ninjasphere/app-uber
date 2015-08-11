@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
-	"net"
 	"os"
 	"strings"
 
@@ -116,24 +115,8 @@ func (a *App) Start(cfg *RuntimeConfig) error {
 
 	pane := NewUberPane(a.Conn)
 
-	// Connect to the led controller remote pane interface
-	tcpAddr, err := net.ResolveTCPAddr("tcp", fmt.Sprintf("%s:%d", host, port))
-	if err != nil {
-		println("ResolveTCPAddr failed:", err.Error())
-		os.Exit(1)
-	}
-
-	log.Infof("Connecting to led controller")
-	conn, err := net.DialTCP("tcp", nil, tcpAddr)
-	if err != nil {
-		println("Dial failed:", err.Error())
-		os.Exit(1)
-	}
-
+	a.led = remote.NewTCPMatrix(pane, fmt.Sprintf("%s:%d", host, port))
 	log.Infof("Connected.")
-
-	// Export our pane over this interface
-	a.led = remote.NewMatrix(pane, conn)
 
 	return nil
 }
